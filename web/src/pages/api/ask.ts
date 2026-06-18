@@ -11,11 +11,18 @@ const OPENROUTER_API_KEY = import.meta.env.OPENROUTER_API_KEY;
 
 // OpenRouter 무료 모델 폴백 체인 (앞에서부터 시도, 유료 전환 없음)
 // gemma-3-27b:free 는 2026 무료 중단됨 → gemma-4-31b:free 가 후속 무료 모델.
+// 무료 모델은 upstream 429(일시 rate-limit)가 잦아 체인을 넓게 + 2패스 재시도.
 const MODELS = [
   "google/gemma-4-31b-it:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "qwen/qwen3-next-80b-a3b-instruct:free",
+  "qwen/qwen3-coder:free",
+  "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
 ];
+const PASSES = 2;          // 체인 전체를 최대 2회 순회
+const RETRY_WAIT_MS = 1500; // 패스 사이 대기
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const SYSTEM_PROMPT =
   "너는 한국 수자원 관련 법령 도우미다. 아래 '근거 조문'에 담긴 내용만 사용해 한국어로 정확히 답한다. " +
@@ -50,19 +57,24 @@ async function embedQuery(text: string): Promise<number[]> {
 
 async function openrouterStream(messages: any[]): Promise<Response> {
   let lastErr = "";
-  for (const model of MODELS) {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ model, messages, stream: true, temperature: 0.2 }),
-    });
-    if (res.ok && res.body) return res;
-    lastErr = `${model} → ${res.status} ${await res.text().catch(() => "")}`;
+  for (let pass = 0; pass < PASSES; pass++) {
+    if (pass > 0) await sleep(RETRY_WAIT_MS);
+    for (const model of MODELS) {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model, messages, stream: true, temperature: 0.2 }),
+      });
+      if (res.ok && res.body) return res;
+      const code = res.status;
+      lastErr = `${model} → ${code} ${(await res.text().catch(() => "")).slice(0, 120)}`;
+      // 404(무료 종료)/402(유료) 모델은 같은 패스에서 다음 모델로 즉시 넘어감
+    }
   }
-  throw new Error(`모든 무료 모델 실패: ${lastErr}`);
+  throw new Error(`무료 모델이 일시적으로 모두 혼잡합니다(잠시 후 재시도). 마지막: ${lastErr}`);
 }
 
 export const POST: APIRoute = async ({ request }) => {
