@@ -10,7 +10,7 @@
 - **수집/임베딩**: `ingestion/`(Python + Playwright) → Supabase 적재. **GitHub Actions 에서 실행**(로컬 금지).
 - **DB**: Supabase (Postgres + pgvector). 스키마 단일 진실원 = `db/schema.sql`.
 - **사이트**: `web/` Astro + React 아일랜드, Vercel SSR 배포.
-- **임베딩 모델**: Google Gemini `text-embedding-004` (무료, 768d).
+- **임베딩 모델**: Google Gemini `gemini-embedding-001` (무료, 768d, outputDimensionality=768).
 - **답변 모델**: OpenRouter `google/gemma-3-27b-it:free` + 무료 폴백.
 
 ## 데이터 흐름
