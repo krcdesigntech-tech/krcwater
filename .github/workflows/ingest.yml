@@ -13,6 +13,10 @@ on:
         description: "content_hash 같아도 재임베딩 (true/false)"
         required: false
         default: "false"
+      dry:
+        description: "DB 쓰기 없이 링크/추출만 확인 (true/false)"
+        required: false
+        default: "false"
   schedule:
     - cron: "0 18 * * *"    # 매일 03:00 KST (UTC 18:00) 정기 갱신
 
@@ -47,4 +51,5 @@ jobs:
           ARGS=""
           if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"; fi
           if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
           python -m ingestion.pipeline $ARGS
