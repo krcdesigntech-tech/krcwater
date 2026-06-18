@@ -1,0 +1,50 @@
+name: ingest
+
+# litt.ly 스크랩 → fetch → 청킹 → Gemini 임베딩 → Supabase 적재.
+# 클라우드(이 러너)에서만 실행 — 로컬 실행 없음.
+on:
+  workflow_dispatch:        # 수동 1회 실행
+    inputs:
+      limit:
+        description: "처리할 링크 수 제한 (비우면 전체)"
+        required: false
+        default: ""
+      force:
+        description: "content_hash 같아도 재임베딩 (true/false)"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "0 18 * * *"    # 매일 03:00 KST (UTC 18:00) 정기 갱신
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install -r ingestion/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run ingestion
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LITTLY_URL: ${{ vars.LITTLY_URL || 'https://litt.ly/krc.wrmo' }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"; fi
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          python -m ingestion.pipeline $ARGS
