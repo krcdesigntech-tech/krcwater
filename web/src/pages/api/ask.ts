@@ -55,23 +55,33 @@ async function embedQuery(text: string): Promise<number[]> {
   return json.embedding.values as number[];
 }
 
-async function openrouterStream(messages: any[]): Promise<Response> {
+// 비스트리밍 완성 요청. 무료 모델은 200 으로 빈 응답을 주는 경우가 있어,
+// 내용이 빌 때까지 체인을 순회(2패스)하며 첫 비어있지 않은 답변을 반환한다.
+async function openrouterComplete(messages: any[]): Promise<string> {
   let lastErr = "";
   for (let pass = 0; pass < PASSES; pass++) {
     if (pass > 0) await sleep(RETRY_WAIT_MS);
     for (const model of MODELS) {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ model, messages, stream: true, temperature: 0.2 }),
-      });
-      if (res.ok && res.body) return res;
-      const code = res.status;
-      lastErr = `${model} → ${code} ${(await res.text().catch(() => "")).slice(0, 120)}`;
-      // 404(무료 종료)/402(유료) 모델은 같은 패스에서 다음 모델로 즉시 넘어감
+      try {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ model, messages, stream: false, temperature: 0.2 }),
+        });
+        if (!res.ok) {
+          lastErr = `${model} → ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}`;
+          continue;
+        }
+        const json = await res.json();
+        const content = (json.choices?.[0]?.message?.content ?? "").trim();
+        if (content) return content;
+        lastErr = `${model} → 200 빈 응답`;
+      } catch (e: any) {
+        lastErr = `${model} → ${String(e?.message ?? e).slice(0, 120)}`;
+      }
     }
   }
   throw new Error(`무료 모델이 일시적으로 모두 혼잡합니다(잠시 후 재시도). 마지막: ${lastErr}`);
@@ -113,48 +123,11 @@ export const POST: APIRoute = async ({ request }) => {
       { role: "user", content: `근거 조문:\n${context}\n\n질문: ${question}` },
     ];
 
-    // 4) OpenRouter 스트리밍 → 5) SSE 파싱해 토큰만 클라이언트로 흘림
-    // SSE 라인/한글 멀티바이트가 청크 경계에서 잘릴 수 있으므로 버퍼링한다.
-    const upstream = await openrouterStream(messages);
-    const reader = upstream.body!.getReader();
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    let buffer = "";
+    // 4) OpenRouter 비스트리밍 완성(빈 응답이면 다음 모델로 폴백)
+    const answer = await openrouterComplete(messages);
 
-    const handleLine = (line: string, controller: ReadableStreamDefaultController) => {
-      const t = line.trim();
-      if (!t.startsWith("data:")) return;
-      const payload = t.slice(5).trim();
-      if (payload === "[DONE]") return;
-      try {
-        const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
-        if (delta) controller.enqueue(encoder.encode(delta));
-      } catch {
-        /* keep-alive 등 비-JSON 라인 무시 */
-      }
-    };
-
-    const stream = new ReadableStream({
-      async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode(); // flush
-          for (const line of buffer.split("\n")) handleLine(line, controller);
-          controller.close();
-          return;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? ""; // 마지막 미완성 라인은 다음 청크까지 보류
-        for (const line of lines) handleLine(line, controller);
-      },
-      cancel() {
-        reader.cancel();
-      },
-    });
-
-    // 출처는 헤더(base64 JSON)로 전달 — 스트림 본문은 순수 답변 텍스트만
-    return new Response(stream, {
+    // 출처는 헤더(base64 JSON)로 전달 — 본문은 순수 답변 텍스트
+    return new Response(answer, {
       headers: {
         "content-type": "text/plain; charset=utf-8",
         "x-sources": Buffer.from(JSON.stringify(sources)).toString("base64"),
