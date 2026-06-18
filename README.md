@@ -19,7 +19,7 @@ Vercel (무료): Astro + React
   질문 임베딩(Gemini) → pgvector 검색 → OpenRouter Gemma 답변(스트리밍, 인용)
 ```
 
-- 임베딩: Google Gemini `text-embedding-004` (무료 1,500/일, 768차원)
+- 임베딩: Google Gemini `gemini-embedding-001` (무료, 768차원)
 - 답변: OpenRouter `google/gemma-3-27b-it:free` (128k, 무료, 20/분·200/일) + 무료 모델 폴백
 
 ## 셋업 (모두 클라우드, 로컬 실행 없음)
