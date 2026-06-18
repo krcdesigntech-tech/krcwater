@@ -1,7 +1,8 @@
-"""Google Gemini text-embedding-004 임베딩 (무료 티어, 768차원).
+"""Google Gemini 임베딩 (gemini-embedding-001, 무료 티어, 768차원).
 
-무료 한도(분당/일 1,500) 보호: 배치 호출 + 429/일시오류 백오프 재시도.
+무료 한도 보호: 배치 호출 + 429/일시오류 백오프 재시도.
 google-genai SDK 사용 (GEMINI_API_KEY).
+768차원은 MRL 축소값(비정규화)이지만 검색이 코사인 유사도라 무관.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import time
 from google import genai
 from google.genai import types
 
-MODEL = "text-embedding-004"
+MODEL = "gemini-embedding-001"
 DIM = 768
 BATCH = 50           # 한 요청에 묶을 텍스트 수
 MAX_RETRY = 5
