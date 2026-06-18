@@ -10,10 +10,11 @@ const GEMINI_API_KEY = import.meta.env.GEMINI_API_KEY;
 const OPENROUTER_API_KEY = import.meta.env.OPENROUTER_API_KEY;
 
 // OpenRouter 무료 모델 폴백 체인 (앞에서부터 시도, 유료 전환 없음)
+// gemma-3-27b:free 는 2026 무료 중단됨 → gemma-4-31b:free 가 후속 무료 모델.
 const MODELS = [
-  "google/gemma-3-27b-it:free",
-  "google/gemma-2-9b-it:free",
+  "google/gemma-4-31b-it:free",
   "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
 ];
 
 const SYSTEM_PROMPT =
