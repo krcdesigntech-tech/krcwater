@@ -6,6 +6,6 @@ import vercel from "@astrojs/vercel";
 // @astrojs/vercel v8: import 경로가 "/serverless" 없이 "@astrojs/vercel"
 export default defineConfig({
   output: "server",
-  adapter: vercel(),
+  adapter: vercel({ maxDuration: 30 }),
   integrations: [react()],
 });
