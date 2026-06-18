@@ -114,30 +114,39 @@ export const POST: APIRoute = async ({ request }) => {
     ];
 
     // 4) OpenRouter 스트리밍 → 5) SSE 파싱해 토큰만 클라이언트로 흘림
+    // SSE 라인/한글 멀티바이트가 청크 경계에서 잘릴 수 있으므로 버퍼링한다.
     const upstream = await openrouterStream(messages);
     const reader = upstream.body!.getReader();
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
+    let buffer = "";
+
+    const handleLine = (line: string, controller: ReadableStreamDefaultController) => {
+      const t = line.trim();
+      if (!t.startsWith("data:")) return;
+      const payload = t.slice(5).trim();
+      if (payload === "[DONE]") return;
+      try {
+        const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+        if (delta) controller.enqueue(encoder.encode(delta));
+      } catch {
+        /* keep-alive 등 비-JSON 라인 무시 */
+      }
+    };
 
     const stream = new ReadableStream({
       async pull(controller) {
         const { done, value } = await reader.read();
         if (done) {
+          buffer += decoder.decode(); // flush
+          for (const line of buffer.split("\n")) handleLine(line, controller);
           controller.close();
           return;
         }
-        for (const line of decoder.decode(value).split("\n")) {
-          const t = line.trim();
-          if (!t.startsWith("data:")) continue;
-          const payload = t.slice(5).trim();
-          if (payload === "[DONE]") continue;
-          try {
-            const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
-            if (delta) controller.enqueue(encoder.encode(delta));
-          } catch {
-            /* keep-alive 등 비-JSON 라인 무시 */
-          }
-        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? ""; // 마지막 미완성 라인은 다음 청크까지 보류
+        for (const line of lines) handleLine(line, controller);
       },
       cancel() {
         reader.cancel();
